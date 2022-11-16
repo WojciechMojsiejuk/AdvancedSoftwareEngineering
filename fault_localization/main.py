@@ -9,6 +9,7 @@ import numpy as np
 from faults_extractor import faults_extractor
 import matplotlib
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 matplotlib.use('TkAgg')
 
 
@@ -18,13 +19,15 @@ class NotFoundInTheDataFrame(Exception):
 
 class FaultLocalizator:
 
-    def __init__(self, coverage_filepath, faults_filepath):
+    def __init__(self, coverage_filepath, faults_filepath=None):
         try:
+            self.faults = None
             self.coverage = pd.read_csv(coverage_filepath, skiprows=2, engine='python', sep=',')  # load coverage file, skip first two rows
-            self.faults = faults_extractor(faults_filepath)
-            self.number_of_faults_covered = np.sum(self.coverage['Line'].isin(self.faults['Line']))
-            if self.number_of_faults_covered == 0:
-                raise NotFoundInTheDataFrame()
+            if faults_filepath is not None:
+                self.faults = faults_extractor(faults_filepath)
+                self.number_of_faults_covered = np.sum(self.coverage['Line'].isin(self.faults['Line']))
+                if self.number_of_faults_covered == 0:
+                    raise NotFoundInTheDataFrame()
             self.FAILED_STATUS = False
             self.formulas = []
             self.exam = None
@@ -114,28 +117,41 @@ class FaultLocalizator:
         self.coverage_top = self.coverage.loc[self.coverage['Rank'].isin(top_values)]  # select top N unique values in dataframe
 
     def check_within_top(self):
-        return np.sum(self.coverage_top['Line'].isin(self.faults['Line'])) == self.number_of_faults_covered  # if we found all faults
+        if self.faults is not None:
+            return np.sum(self.coverage_top['Line'].isin(self.faults['Line'])) == self.number_of_faults_covered  # if we found all faults
+        else:
+            return self.coverage['Line'].isin(self.coverage_top['Line']).astype(int)
 
     def calc_exam(self, normalized=False):
         self.exam = np.max(np.where(self.coverage['Line'].isin(self.faults['Line'])))
         if normalized:
             self.exam = self.exam / self.coverage.shape[0]
 
+    def calc_majority(self, z_score):
+        self.coverage['Majority'] = z_score
 
 
 data_path = './eval-data/eval/'
 TOP = 20
+SEED = 1
+
 if __name__ == '__main__':
     coverage_paths = glob.glob(data_path+'*.coverage.csv')  # find all coverage files
     faulty_paths = glob.glob(data_path+'*.faulty-lines.csv')  # find all faulty-lines files
 
-    data_size = len(coverage_paths)
+    coverage_train, coverage_test = train_test_split(coverage_paths, test_size=0.2, random_state=SEED)
+    faulty_train, faulty_test = train_test_split(faulty_paths, test_size=0.2, random_state=SEED)
+
+    data_size = len(coverage_train)
     count_all = data_size
     failed = 0
     exams_all = []
     number_of_formulas = 0
+
+    # Training
+
     for idx in tqdm(range(data_size)):
-        fault = FaultLocalizator(coverage_paths[idx], faulty_paths[idx])
+        fault = FaultLocalizator(coverage_train[idx], faulty_train[idx])
         if idx == 0:
             number_of_formulas = len(fault.formulas)
             count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
@@ -173,3 +189,56 @@ if __name__ == '__main__':
     plt.title(title_str)
     plt.tight_layout()
     plt.show()
+
+    # prior information of the performance of the formulas on training
+    z = np.exp(1 - np.mean(exams_all, axis=0))
+    z_all = np.sum(z)
+
+    data_size = len(coverage_test)
+    count_all = data_size
+    failed = 0
+    number_of_formulas = 0
+    exams_all = []
+
+    # Testing
+
+    for idx in tqdm(range(data_size)):
+        fault = FaultLocalizator(coverage_test[idx])
+        if idx == 0:
+            number_of_formulas = len(fault.formulas)
+
+        if not fault.FAILED_STATUS:
+            count = np.zeros((fault.coverage.shape[0],
+                              number_of_formulas))  # counter how many times faulty line was found within TOP N search
+            for i, formula in enumerate(fault.formulas):
+                fault.calc_rank(formula)
+                fault.calc_top(TOP)
+                fault.revert() # return to pre-sorted array
+                faults_within_top = fault.check_within_top()
+                count[:, i] = faults_within_top
+            z_score = (count @ z) / z_all
+            fault.calc_majority(z_score)
+            fault.calc_rank('Majority')
+            fault.faults = faults_extractor(faulty_test[idx])
+            fault.number_of_faults_covered = np.sum(fault.coverage['Line'].isin(fault.faults['Line']))
+            if fault.number_of_faults_covered != 0:
+                fault.calc_exam(True)
+                exams_all.append(fault.exam)
+            else:
+                warnings.warn(f'Fault with file {faulty_test[idx]}')
+                warnings.warn('Line from faulty csv was not found in the whole dataframe')
+        else:
+            failed += 1
+            count_all -= 1
+
+    print(exams_all)
+
+    plt.figure()
+    plt.boxplot(exams_all)
+    plt.xticks(rotation=90)
+    plt.ylabel('Normalized Exam score')
+    plt.xlabel('Formulas')
+    plt.tight_layout()
+    plt.show()
+
+
