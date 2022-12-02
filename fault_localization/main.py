@@ -19,7 +19,7 @@ class NotFoundInTheDataFrame(Exception):
 
 class FaultLocalizator:
 
-    def __init__(self, coverage_filepath, faults_filepath=None):
+    def __init__(self, coverage_filepath, faults_filepath=None, benchmark=False):
         try:
             self.faults = None
             self.coverage = pd.read_csv(coverage_filepath, skiprows=2, engine='python', sep=',')  # load coverage file, skip first two rows
@@ -32,20 +32,21 @@ class FaultLocalizator:
             self.formulas = []
             self.exam = None
             self.prerank = None
-            self.calc_jaccard()
-            self.calc_dstar()
-            self.calc_dstar(3)
-            self.calc_dstar(5)
-            self.calc_tarantula()
-            self.calc_ochiai()
-            self.calc_naish()
-            self.calc_gp08()
-            self.calc_gp10()
-            self.calc_gp10()
-            self.calc_gp11()
-            self.calc_gp13()
-            self.calc_gp20()
-            self.calc_gp26()
+            if benchmark:
+                self.calc_jaccard()
+            else:
+                self.calc_dstar()
+                self.calc_dstar(3)
+                # self.calc_dstar(5)
+                self.calc_tarantula()
+                self.calc_ochiai()
+                self.calc_naish()
+                # self.calc_gp08()
+                # self.calc_gp10()
+                # self.calc_gp11()
+                # self.calc_gp13()
+                # self.calc_gp20()
+                self.calc_gp26()
             self.prerank = self.coverage
 
         except ParserError as pe:
@@ -82,7 +83,7 @@ class FaultLocalizator:
         self.formulas.append('Naish')
 
     def calc_gp08(self):
-        self.coverage['GP08'] = self.coverage['Ef']**(2*self.coverage['Ep']+2*self.coverage['Ef']+3*self.coverage['Np'])
+        self.coverage['GP08'] = self.coverage['Ef']**2*(self.coverage['Ep']+2*self.coverage['Ef']+3*self.coverage['Np']) # TODO: check this formula
         self.formulas.append('GP08')
 
     def calc_gp10(self):
@@ -113,7 +114,7 @@ class FaultLocalizator:
         self.coverage = self.prerank
 
     def calc_top(self, top):
-        top_values = self.coverage['Rank'].unique()[:top] # find top N unique values in rank
+        top_values = set(self.coverage['Rank'][:top]) # find what ranks are within N values in rank
         self.coverage_top = self.coverage.loc[self.coverage['Rank'].isin(top_values)]  # select top N unique values in dataframe
 
     def check_within_top(self):
@@ -131,9 +132,12 @@ class FaultLocalizator:
         self.coverage['Majority'] = z_score
 
 
-data_path = './eval-data/eval/'
+data_path = './eval-closure-issue-fixed/'
 TOP = 20
+TOP_SEARCH = [5, 10, 25, 50, 100, 200, 300, 400, 500, 750,  1000]
 SEED = 1
+PLOTS = True
+
 
 if __name__ == '__main__':
     coverage_paths = glob.glob(data_path+'*.coverage.csv')  # find all coverage files
@@ -147,11 +151,12 @@ if __name__ == '__main__':
     failed = 0
     exams_all = []
     number_of_formulas = 0
-
+    benchmark_exam = None
+    benchmark_exam_all = []
     # Training
 
     for idx in tqdm(range(data_size)):
-        fault = FaultLocalizator(coverage_train[idx], faulty_train[idx])
+        fault = FaultLocalizator(coverage_train[idx], faulty_train[idx], benchmark=False)
         if idx == 0:
             number_of_formulas = len(fault.formulas)
             count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
@@ -169,30 +174,60 @@ if __name__ == '__main__':
         else:
             failed += 1
             count_all -= 1
+
+        benchmark = FaultLocalizator(coverage_train[idx], faulty_train[idx], benchmark=True)
+
+        if idx == 0:
+            number_of_formulas = len(benchmark.formulas)
+            b_count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
+            b_exams = np.zeros(number_of_formulas)
+        if not fault.FAILED_STATUS:
+            for i, formula in enumerate(benchmark.formulas):
+                benchmark.calc_rank(formula)
+                benchmark.calc_exam(True)
+                benchmark_exam = benchmark.exam
+                benchmark.calc_top(TOP)
+                if benchmark.check_within_top():
+                    b_count[i] += 1
+                benchmark.revert()
+            benchmark_exam_all.append(benchmark_exam.copy())
+        else:
+            failed += 1
+            count_all -= 1
+
     exams_all = np.array(exams_all)
     count /= count_all
 
-    plt.figure()
-    plt.boxplot(exams_all, labels=fault.formulas)
-    plt.xticks(rotation=90)
-    plt.ylabel('Normalized Exam score')
-    plt.xlabel('Formulas')
-    plt.tight_layout()
-    plt.show()
+    if PLOTS:
+        plt.figure()
+        plt.boxplot(exams_all, labels=fault.formulas)
+        plt.xticks(rotation=90)
+        plt.ylabel('Normalized Exam score')
+        plt.xlabel('Formulas')
+        plt.tight_layout()
+        plt.show()
 
-    plt.figure()
-    plt.plot(count, '.')
-    plt.ylabel('Accuracy')
-    plt.xlabel('Formulas')
-    plt.xticks(range(len(count)), fault.formulas, rotation=90)
-    title_str = f'Top {TOP}'
-    plt.title(title_str)
-    plt.tight_layout()
-    plt.show()
+        plt.figure()
+        plt.plot(count, '.')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Formulas')
+        plt.xticks(range(len(count)), fault.formulas, rotation=90)
+        title_str = f'Top {TOP}'
+        plt.title(title_str)
+        plt.tight_layout()
+        plt.show()
 
     # prior information of the performance of the formulas on training
-    z = np.exp(1 - np.mean(exams_all, axis=0))
+    # z = rankdata(count, 'dense')
+    # z = np.exp(count)
+    # z = np.exp(count) * np.square(rankdata(count, 'dense'))
+    # z = np.exp((count - np.min(count))/(np.max(count) - np.min(count)))
+    z = (count - np.min(count)) / (np.max(count) - np.min(count)) + 1
     z_all = np.sum(z)
+
+
+
+
 
     data_size = len(coverage_test)
     count_all = data_size
@@ -211,11 +246,14 @@ if __name__ == '__main__':
             count = np.zeros((fault.coverage.shape[0],
                               number_of_formulas))  # counter how many times faulty line was found within TOP N search
             for i, formula in enumerate(fault.formulas):
-                fault.calc_rank(formula)
-                fault.calc_top(TOP)
-                fault.revert() # return to pre-sorted array
-                faults_within_top = fault.check_within_top()
-                count[:, i] = faults_within_top
+                if formula == 'Jaccard':
+                    continue
+                for top in TOP_SEARCH:
+                    fault.calc_rank(formula)
+                    fault.calc_top(top)
+                    fault.revert() # return to pre-sorted array
+                    faults_within_top = fault.check_within_top()
+                    count[:, i] += faults_within_top
             z_score = (count @ z) / z_all
             fault.calc_majority(z_score)
             fault.calc_rank('Majority')
@@ -231,14 +269,28 @@ if __name__ == '__main__':
             failed += 1
             count_all -= 1
 
-    print(exams_all)
 
     plt.figure()
+    plt.subplot(1,2,1)
     plt.boxplot(exams_all)
     plt.xticks(rotation=90)
     plt.ylabel('Normalized Exam score')
     plt.xlabel('Formulas')
+    plt.title('Our model')
+    plt.tight_layout()
+
+
+    plt.subplot(1,2,2)
+    plt.boxplot(benchmark_exam_all)
+    plt.xticks(rotation=90)
+    plt.ylabel('Normalized Exam score')
+    plt.xlabel('Formulas')
+    plt.title('Jaccard')
     plt.tight_layout()
     plt.show()
 
+    print(np.sum(count))
+    print(count.shape)
+    print(z)
+    print(z_all)
 

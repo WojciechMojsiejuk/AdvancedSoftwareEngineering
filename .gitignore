@@ -25,3 +25,7 @@ hs_err_pid*
 #
 /fault_localization/eval-data/*
 /fault_localization/OneDrive_2022-10-17/*
+/fault_localization/eval-closure-issue-fixed/*
+/fault_localization/__pycache__/*
+/fault_localization/.idea/*
+/fault_localization/venv/*
