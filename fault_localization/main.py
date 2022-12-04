@@ -196,7 +196,8 @@ if __name__ == '__main__':
             count_all -= 1
 
     exams_all = np.array(exams_all)
-    training_exams_copy = exams_all
+    training_exams_copy = exams_all  # TODO: it's not a copy, use .copy() for shallow copy
+    print(training_exams_copy is exams_all)  # will give True. For mutable objects like lists passing a reference to the same object is dangerous behavious
     count /= count_all
 
     if PLOTS:
@@ -295,10 +296,11 @@ if __name__ == '__main__':
     print(z)
     print(z_all)
 
+
     # Calculates the Wilcoxon signed rank test
 
     forFormula = 'Jaccard'
-    forFormulaIndex = fault.formulas.index(forFormula)
+    forFormulaIndex = fault.formulas.index(forFormula) # TODO: currently fault doesnt have Jaccard, use bencharm object instead
     forFormulaExam = training_exams_copy[forFormulaIndex]
 
     p_scores = []
@@ -308,7 +310,7 @@ if __name__ == '__main__':
             continue
 
         compareToExam = training_exams_copy[i]
-        p_scores.append(stats.wilcoxon(forFormulaExam, compareToExam)[1])
+        p_scores.append(stats.wilcoxon(forFormulaExam, compareToExam)[1]) # TODO: not imported
         p_score_formulas.append(formula)
 
     plt.scatter(p_score_formulas, p_scores)
