@@ -196,7 +196,6 @@ if __name__ == '__main__':
             count_all -= 1
 
     exams_all = np.array(exams_all)
-    training_exams_copy = exams_all
     count /= count_all
 
     if PLOTS:
@@ -294,28 +293,4 @@ if __name__ == '__main__':
     print(count.shape)
     print(z)
     print(z_all)
-
-    # Calculates the Wilcoxon signed rank test
-
-    forFormula = 'Jaccard'
-    forFormulaIndex = fault.formulas.index(forFormula)
-    forFormulaExam = training_exams_copy[forFormulaIndex]
-
-    p_scores = []
-    p_score_formulas = []
-    for i, formula in enumerate(fault.formulas):
-        if formula == forFormula:
-            continue
-
-        compareToExam = training_exams_copy[i]
-        p_scores.append(stats.wilcoxon(forFormulaExam, compareToExam)[1])
-        p_score_formulas.append(formula)
-
-    plt.scatter(p_score_formulas, p_scores)
-    plt.plot([0, len(p_score_formulas) - 2], [0.05, 0.05], 'k-', color='red')
-    plt.ylabel('p scores')
-    plt.yscale('log')
-    plt.xlabel('Formulas')
-    plt.title(forFormula + ' Wilcoxon signed ranked test')
-    plt.show()
 
