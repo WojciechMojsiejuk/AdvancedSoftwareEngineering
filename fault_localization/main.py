@@ -2,7 +2,7 @@ import csv
 import glob
 import pandas as pd
 from pandas.errors import ParserError
-from scipy.stats import rankdata
+from scipy.stats import rankdata, wilcoxon
 import warnings
 from tqdm import tqdm
 import numpy as np
@@ -136,7 +136,7 @@ data_path = './eval-closure-issue-fixed/'
 TOP = 20
 TOP_SEARCH = [5, 10, 25, 50, 100, 200, 300, 400, 500, 750,  1000]
 SEED = 1
-PLOTS = True
+PLOTS = False
 
 
 if __name__ == '__main__':
@@ -196,9 +196,26 @@ if __name__ == '__main__':
             count_all -= 1
 
     exams_all = np.array(exams_all)
-    training_exams_copy = exams_all  # TODO: it's not a copy, use .copy() for shallow copy
+    training_exams_copy = exams_all.copy()  # TODO: it's not a copy, use .copy() for shallow copy
     print(training_exams_copy is exams_all)  # will give True. For mutable objects like lists passing a reference to the same object is dangerous behavious
     count /= count_all
+
+    # wilcoxon test on training:
+    p_scores = []
+    p_score_formulas = []
+    for i, formula in enumerate(fault.formulas):
+        compareToExam = training_exams_copy[:, i]
+        p_scores.append(wilcoxon(benchmark_exam_all, compareToExam)[1]) # TODO: not imported
+        p_score_formulas.append(formula)
+
+    plt.scatter(p_score_formulas, p_scores)
+    plt.plot([0, len(p_score_formulas) - 1], [0.05, 0.05], 'k-', color='red')
+    plt.ylabel('p scores')
+    plt.yscale('log')
+    plt.xlabel('Formulas')
+    plt.title(' Wilcoxon signed ranked test')
+    plt.show()
+
 
     if PLOTS:
         plt.figure()
@@ -227,16 +244,12 @@ if __name__ == '__main__':
     z = (count - np.min(count)) / (np.max(count) - np.min(count)) + 1
     z_all = np.sum(z)
 
-
-
-
-
     data_size = len(coverage_test)
     count_all = data_size
     failed = 0
     number_of_formulas = 0
     exams_all = []
-
+    benchmark_exam_all = []
     # Testing
 
     for idx in tqdm(range(data_size)):
@@ -248,8 +261,6 @@ if __name__ == '__main__':
             count = np.zeros((fault.coverage.shape[0],
                               number_of_formulas))  # counter how many times faulty line was found within TOP N search
             for i, formula in enumerate(fault.formulas):
-                if formula == 'Jaccard':
-                    continue
                 for top in TOP_SEARCH:
                     fault.calc_rank(formula)
                     fault.calc_top(top)
@@ -271,6 +282,17 @@ if __name__ == '__main__':
             failed += 1
             count_all -= 1
 
+        test_benchmark = FaultLocalizator(coverage_test[idx], faulty_test[idx], benchmark=True)
+        if not test_benchmark.FAILED_STATUS:
+            test_benchmark.calc_rank('Jaccard')
+            test_benchmark.calc_exam(True)
+            benchmark_exam = test_benchmark.exam
+            test_benchmark.calc_top(TOP)
+            test_benchmark.revert()
+            benchmark_exam_all.append(benchmark_exam.copy())
+        else:
+            failed += 1
+            count_all -= 1
 
     plt.figure()
     plt.subplot(1,2,1)
@@ -281,8 +303,7 @@ if __name__ == '__main__':
     plt.title('Our model')
     plt.tight_layout()
 
-
-    plt.subplot(1,2,2)
+    plt.subplot(1, 2, 2)
     plt.boxplot(benchmark_exam_all)
     plt.xticks(rotation=90)
     plt.ylabel('Normalized Exam score')
@@ -291,33 +312,28 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.show()
 
-    print(np.sum(count))
-    print(count.shape)
-    print(z)
-    print(z_all)
+    # print(np.sum(count))
+    # print(count.shape)
+    # print(z)
+    # print(z_all)
 
 
     # Calculates the Wilcoxon signed rank test
 
-    forFormula = 'Jaccard'
-    forFormulaIndex = fault.formulas.index(forFormula) # TODO: currently fault doesnt have Jaccard, use bencharm object instead
-    forFormulaExam = training_exams_copy[forFormulaIndex]
-
     p_scores = []
-    p_score_formulas = []
-    for i, formula in enumerate(fault.formulas):
-        if formula == forFormula:
-            continue
+    p_scores.append(wilcoxon(benchmark_exam_all, exams_all)[1]) # TODO: not imported
 
-        compareToExam = training_exams_copy[i]
-        p_scores.append(stats.wilcoxon(forFormulaExam, compareToExam)[1]) # TODO: not imported
-        p_score_formulas.append(formula)
-
-    plt.scatter(p_score_formulas, p_scores)
-    plt.plot([0, len(p_score_formulas) - 2], [0.05, 0.05], 'k-', color='red')
+    plt.scatter([1], p_scores)
+    plt.plot([0, 2], [0.05, 0.05], 'k-', color='red')
     plt.ylabel('p scores')
     plt.yscale('log')
-    plt.xlabel('Formulas')
-    plt.title(forFormula + ' Wilcoxon signed ranked test')
+    plt.xlabel('Majority voting')
+    plt.tick_params(
+        axis='x',  # changes apply to the x-axis
+        which='both',  # both major and minor ticks are affected
+        bottom=False,  # ticks along the bottom edge are off
+        top=False,  # ticks along the top edge are off
+        labelbottom=False)  # labels along the bottom edge are off
+    plt.title(' Wilcoxon signed ranked test')
     plt.show()
 
