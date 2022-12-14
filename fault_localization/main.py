@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 matplotlib.use('TkAgg')
 
-
+NUM_OF_FORMULAS = 6
+FORMULAS = ['DStart2', 'DStart3', 'Tarantula', 'Ochiai', 'Naish', 'GP26']
 class NotFoundInTheDataFrame(Exception):
     pass
 
@@ -33,14 +34,14 @@ class FaultLocalizator:
             self.exam = None
             self.prerank = None
             if benchmark:
-                self.calc_jaccard()
+                self.calc_naish()
             else:
                 self.calc_dstar()
                 self.calc_dstar(3)
-                # self.calc_dstar(5)
                 self.calc_tarantula()
                 self.calc_ochiai()
                 self.calc_naish()
+                # self.calc_dstar(5)
                 # self.calc_gp08()
                 # self.calc_gp10()
                 # self.calc_gp11()
@@ -135,8 +136,8 @@ class FaultLocalizator:
 data_path = './eval-closure-issue-fixed/'
 TOP = 20
 TOP_SEARCH = [5, 10, 25, 50, 100, 200, 300, 400, 500, 750,  1000]
-SEED = 1
-PLOTS = False
+SEED = 20
+PLOTS = True
 
 
 if __name__ == '__main__':
@@ -157,11 +158,11 @@ if __name__ == '__main__':
 
     for idx in tqdm(range(data_size)):
         fault = FaultLocalizator(coverage_train[idx], faulty_train[idx], benchmark=False)
-        if idx == 0:
-            number_of_formulas = len(fault.formulas)
-            count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
-            exams = np.zeros(number_of_formulas)
         if not fault.FAILED_STATUS:
+            if idx == 0:
+                number_of_formulas = NUM_OF_FORMULAS
+                count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
+                exams = np.zeros(number_of_formulas)
             for i, formula in enumerate(fault.formulas):
                 fault.calc_rank(formula)
                 fault.calc_exam(True)
@@ -172,16 +173,22 @@ if __name__ == '__main__':
                 fault.revert()
             exams_all.append(exams.copy())
         else:
+            if idx == 0:
+                number_of_formulas =  6  # we need to manually set number of formulas
+                count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
+                exams = np.zeros(number_of_formulas)
             failed += 1
             count_all -= 1
 
         benchmark = FaultLocalizator(coverage_train[idx], faulty_train[idx], benchmark=True)
 
-        if idx == 0:
-            number_of_formulas = len(benchmark.formulas)
-            b_count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
-            b_exams = np.zeros(number_of_formulas)
         if not fault.FAILED_STATUS:
+            if idx == 0:
+                number_of_formulas = NUM_OF_FORMULAS
+                b_count = np.zeros(
+                    number_of_formulas)  # counter how many times faulty line was found within TOP N search
+                b_exams = np.zeros(number_of_formulas)
+
             for i, formula in enumerate(benchmark.formulas):
                 benchmark.calc_rank(formula)
                 benchmark.calc_exam(True)
@@ -195,31 +202,41 @@ if __name__ == '__main__':
             failed += 1
             count_all -= 1
 
+            if idx == 0:
+                number_of_formulas = 1
+                b_count = np.zeros(
+                    number_of_formulas)  # counter how many times faulty line was found within TOP N search
+                b_exams = np.zeros(number_of_formulas)
+
     exams_all = np.array(exams_all)
     training_exams_copy = exams_all.copy()  # TODO: it's not a copy, use .copy() for shallow copy
     print(training_exams_copy is exams_all)  # will give True. For mutable objects like lists passing a reference to the same object is dangerous behavious
     count /= count_all
 
-    # wilcoxon test on training:
-    p_scores = []
-    p_score_formulas = []
-    for i, formula in enumerate(fault.formulas):
-        compareToExam = training_exams_copy[:, i]
-        p_scores.append(wilcoxon(benchmark_exam_all, compareToExam)[1]) # TODO: not imported
-        p_score_formulas.append(formula)
+    if(PLOTS):
+        # wilcoxon test on training:
+        try:
+            p_scores = []
+            p_score_formulas = []
+            for i, formula in enumerate(FORMULAS):
+                compareToExam = training_exams_copy[:, i]
+                p_scores.append(wilcoxon(benchmark_exam_all, compareToExam)[1]) # TODO: not imported
+                p_score_formulas.append(formula)
 
-    plt.scatter(p_score_formulas, p_scores)
-    plt.plot([0, len(p_score_formulas) - 1], [0.05, 0.05], 'k-', color='red')
-    plt.ylabel('p scores')
-    plt.yscale('log')
-    plt.xlabel('Formulas')
-    plt.title(' Wilcoxon signed ranked test')
-    plt.show()
+            plt.scatter(p_score_formulas, p_scores)
+            plt.plot([0, len(p_score_formulas) - 1], [0.05, 0.05], 'k-', color='red')
+            plt.ylabel('p scores')
+            plt.yscale('log')
+            plt.xlabel('Formulas')
+            plt.title(' Wilcoxon signed ranked test')
+            plt.show()
+        except ValueError:
+            pass
 
 
     if PLOTS:
         plt.figure()
-        plt.boxplot(exams_all, labels=fault.formulas)
+        plt.boxplot(exams_all, labels=FORMULAS)
         plt.xticks(rotation=90)
         plt.ylabel('Normalized Exam score')
         plt.xlabel('Formulas')
@@ -230,7 +247,7 @@ if __name__ == '__main__':
         plt.plot(count, '.')
         plt.ylabel('Accuracy')
         plt.xlabel('Formulas')
-        plt.xticks(range(len(count)), fault.formulas, rotation=90)
+        plt.xticks(range(len(count)), FORMULAS, rotation=90)
         title_str = f'Top {TOP}'
         plt.title(title_str)
         plt.tight_layout()
@@ -250,12 +267,13 @@ if __name__ == '__main__':
     number_of_formulas = 0
     exams_all = []
     benchmark_exam_all = []
+
     # Testing
 
     for idx in tqdm(range(data_size)):
         fault = FaultLocalizator(coverage_test[idx])
         if idx == 0:
-            number_of_formulas = len(fault.formulas)
+            number_of_formulas = NUM_OF_FORMULAS
 
         if not fault.FAILED_STATUS:
             count = np.zeros((fault.coverage.shape[0],
@@ -281,10 +299,14 @@ if __name__ == '__main__':
         else:
             failed += 1
             count_all -= 1
+            if idx == 0:
+                number_of_formulas = NUM_OF_FORMULAS
+                count = np.zeros(number_of_formulas)  # counter how many times faulty line was found within TOP N search
+                exams = np.zeros(number_of_formulas)
 
         test_benchmark = FaultLocalizator(coverage_test[idx], faulty_test[idx], benchmark=True)
         if not test_benchmark.FAILED_STATUS:
-            test_benchmark.calc_rank('Jaccard')
+            test_benchmark.calc_rank('Naish')
             test_benchmark.calc_exam(True)
             benchmark_exam = test_benchmark.exam
             test_benchmark.calc_top(TOP)
@@ -295,7 +317,7 @@ if __name__ == '__main__':
             count_all -= 1
 
     plt.figure()
-    plt.subplot(1,2,1)
+    plt.subplot(1, 2, 1)
     plt.boxplot(exams_all)
     plt.xticks(rotation=90)
     plt.ylabel('Normalized Exam score')
@@ -308,7 +330,7 @@ if __name__ == '__main__':
     plt.xticks(rotation=90)
     plt.ylabel('Normalized Exam score')
     plt.xlabel('Formulas')
-    plt.title('Jaccard')
+    plt.title('Naish')
     plt.tight_layout()
     plt.show()
 
@@ -324,7 +346,7 @@ if __name__ == '__main__':
     p_scores.append(wilcoxon(benchmark_exam_all, exams_all)[1]) # TODO: not imported
 
     plt.scatter([1], p_scores)
-    plt.plot([0, 2], [0.05, 0.05], 'k-', color='red')
+    plt.plot([0, 2], [0.05, 0.05], '-', color='red')
     plt.ylabel('p scores')
     plt.yscale('log')
     plt.xlabel('Majority voting')
