@@ -209,6 +209,7 @@ if __name__ == '__main__':
                 b_exams = np.zeros(number_of_formulas)
 
     exams_all = np.array(exams_all)
+
     training_exams_copy = exams_all.copy()  # TODO: it's not a copy, use .copy() for shallow copy
     print(training_exams_copy is exams_all)  # will give True. For mutable objects like lists passing a reference to the same object is dangerous behavious
     count /= count_all
@@ -339,7 +340,6 @@ if __name__ == '__main__':
     # print(z)
     # print(z_all)
 
-
     # Calculates the Wilcoxon signed rank test
 
     p_scores = []
@@ -358,4 +358,3 @@ if __name__ == '__main__':
         labelbottom=False)  # labels along the bottom edge are off
     plt.title(' Wilcoxon signed ranked test')
     plt.show()
-
